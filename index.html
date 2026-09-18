@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Vaish Industries - Level 2 Test</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Calibri, 'Segoe UI', sans-serif; color: #434242; margin: 0; background: #fff; font-size: 17px; }
+    .bar { background: #363464; color: #fff; padding: 12px 16px; font-size: 19px; font-weight: bold; position: sticky; top: 0; z-index: 5; display: flex; justify-content: space-between; align-items: center; }
+    .bar .mark { color: #33B1B6; }
+    .timer { font-variant-numeric: tabular-nums; background: #33B1B6; color: #363464; padding: 4px 10px; border-radius: 6px; font-size: 18px; display: none; }
+    .timer.low { background: #EE3B3B; color: #fff; }
+    .wrap { padding: 14px; max-width: 620px; margin: 0 auto; }
+    h2 { color: #363464; margin: 8px 0 4px; font-size: 20px; }
+    .hi { color: #0072AC; }
+    .sub { color: #666; font-size: 15px; margin: 0 0 12px; }
+    .q { border: 1px solid #ddd; border-radius: 10px; padding: 12px; margin: 0 0 12px; }
+    .q .no { font-weight: bold; color: #0072AC; }
+    .q .en { font-weight: bold; display: block; margin-bottom: 4px; }
+    .q .hi { display: block; margin-bottom: 8px; }
+    label.opt { display: block; padding: 10px; border: 1px solid #ccc; border-radius: 8px; margin: 6px 0; cursor: pointer; }
+    label.opt:has(input:checked) { border-color: #0072AC; background: #e8f3fa; }
+    label.opt input { margin-right: 8px; transform: scale(1.3); }
+    label.opt .hi { display: inline; }
+    button { background: #0072AC; color: #fff; border: 0; border-radius: 8px; width: 100%; padding: 14px 22px; font-size: 19px; font-family: inherit; margin-top: 8px; }
+    button:disabled { background: #9bb; }
+    .rules { background: #f3f6fa; border-left: 4px solid #33B1B6; padding: 10px 12px; margin: 10px 0; font-size: 16px; }
+    .err { color: #c00; font-weight: bold; margin: 8px 0; }
+    .done { text-align: center; padding: 30px 10px; }
+    .done .big { font-size: 26px; color: #363464; font-weight: bold; }
+    #cam { position: fixed; right: 8px; bottom: 8px; width: 96px; height: 128px; object-fit: cover; border: 3px solid #33B1B6; border-radius: 10px; background: #000; z-index: 6; display: none; }
+    #rec { position: fixed; right: 12px; bottom: 140px; background: #EE3B3B; color: #fff; font-size: 12px; padding: 2px 8px; border-radius: 10px; z-index: 6; display: none; }
+    .disc table { width: 100%; border-collapse: collapse; }
+    .disc td { padding: 6px 4px; border-bottom: 1px solid #eee; vertical-align: top; }
+    .disc th { font-size: 13px; color: #666; font-weight: normal; }
+    .disc input { transform: scale(1.4); }
+    .speak { font-size: 40px; text-align: center; color: #363464; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <div class="bar"><div><span class="mark">&#9632;</span> Vaish Industries</div><div id="timer" class="timer">15:00</div></div>
+  <div class="wrap" id="app"><p class="sub">Loading... / लोड हो रहा है...</p></div>
+  <video id="cam" autoplay muted playsinline></video>
+  <div id="rec">&#9679; REC</div>
+
+<script>
+// ---- config ----
+var API = 'https://script.google.com/macros/s/AKfycbzuOuykxKuHh8zbZ6S2FKjjnzHpOT4cObcUW6uYp8r0mK4DBAM9arroP3xUdZ3yeeh7/exec';
+var qs = new URLSearchParams(location.search);
+var K = qs.get('k') || '', FAKE = qs.get('fake') === '1';
+var P = null, T0 = 0, consentTs = '', submitted = false;
+var tabSwitches = 0, hiddenS = 0, hiddenSince = 0;
+var stream = null, recorder = null, seq = 0, uploads = [], thumbs = [], stripSeq = 0, thumbTimer = null, audioMarks = [];
+var answers = [], qTimes = [], cur = 0, qStart = 0, tick = null, deadline = 0, disc = [];
+
+function $(id) { return document.getElementById(id); }
+function el(html) { var d = document.createElement('div'); d.innerHTML = html; return d; }
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+function post(obj) {
+  return fetch(API, { method: 'POST', body: JSON.stringify(obj), redirect: 'follow' }).then(function (r) { return r.json(); });
+}
+
+// ---- visibility: leaving the page is recorded; too long ends the test ----
+document.addEventListener('visibilitychange', function () {
+  if (!T0 || submitted) return;
+  if (document.hidden) { tabSwitches++; hiddenSince = Date.now(); }
+  else if (hiddenSince) { hiddenS += Math.round((Date.now() - hiddenSince) / 1000); hiddenSince = 0;
+    if (P && hiddenS > P.hidden_limit_s) finish(true, 'left the page'); }
+});
+
+// ---- boot ----
+(function boot() {
+  if (!K) { $('app').innerHTML = '<p class="err">This link is not valid. / यह लिंक सही नहीं है।</p>'; return; }
+  fetch(API + '?l2=start&k=' + encodeURIComponent(K), { redirect: 'follow' }).then(function (r) { return r.json(); }).then(function (r) {
+    if (!r.ok) {
+      var m = { 'invalid link': 'This link is not valid. / यह लिंक सही नहीं है।', 'already submitted': 'This test is already submitted. / यह टेस्ट पहले ही जमा हो चुका है।',
+                'too early': 'Your slot has not started yet. Come back at the time in your message. / आपका समय अभी शुरू नहीं हुआ। मैसेज में दिए समय पर आएँ।',
+                'slot expired': 'Your slot has passed. Please message us for a new time. / आपका समय निकल गया। नए समय के लिए हमें मैसेज करें।' };
+      $('app').innerHTML = '<p class="err">' + (m[r.error] || esc(r.error)) + '</p>'; return;
+    }
+    P = r; renderConsent();
+  }).catch(function (e) { $('app').innerHTML = '<p class="err">Cannot reach the server. Check internet and reload. / सर्वर नहीं मिला, इंटरनेट देखें और रीलोड करें।</p>'; });
+})();
+
+function renderConsent() {
+  $('app').innerHTML = '';
+  $('app').appendChild(el(
+    '<h2>' + esc(P.name) + ' - Level 2 <span class="hi">/ लेवल 2</span></h2><p class="sub">' + esc(P.title.en) + ' / ' + esc(P.title.hi) + '</p>' +
+    '<div class="rules"><b>This test is recorded.</b> Your camera and microphone stay on from Start to Submit. The recording is seen only by Vaish Industries hiring staff, is used only for this selection, and is deleted after 90 days. Leaving this page ends the test.<br>' +
+    '<span class="hi"><b>यह टेस्ट रिकॉर्ड होता है।</b> Start से Submit तक आपका कैमरा और माइक चालू रहेंगे। रिकॉर्डिंग सिर्फ वैश इंडस्ट्रीज़ की भर्ती टीम देखेगी, सिर्फ इसी चयन के लिए, और 90 दिन बाद हटा दी जाएगी। यह पेज छोड़ने पर टेस्ट खत्म हो जाएगा।</span></div>' +
+    '<div class="rules">What happens: <b>Part A</b> ' + P.questions.length + ' trade questions, ' + P.minutes + ' min, one at a time, no going back. <b>Part B</b> word choices, no time limit. <b>Part C</b> two spoken answers, 30 s each. Sit alone in a quiet place, phone on a stand or held steady, face visible.<br>' +
+    '<span class="hi">क्या होगा: <b>भाग A</b> ' + P.questions.length + ' ट्रेड प्रश्न, ' + P.minutes + ' मिनट, एक बार में एक, पीछे नहीं। <b>भाग B</b> शब्द-चुनाव, समय सीमा नहीं। <b>भाग C</b> दो बोले हुए जवाब, 30-30 सेकंड। अकेले, शांत जगह पर बैठें, फोन स्थिर रखें, चेहरा दिखता रहे।</span></div>' +
+    '<div class="err" id="err"></div><button id="agree" onclick="agree()">I agree, turn on camera / मैं सहमत हूँ, कैमरा चालू करें</button>'));
+}
+
+function agree() {
+  $('agree').disabled = true; $('err').textContent = '';
+  var p = FAKE ? Promise.resolve(fakeStream()) : navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: true });
+  p.then(function (s) {
+    stream = s; $('cam').srcObject = s; $('cam').style.display = 'block';
+    consentTs = new Date().toISOString();
+    post({ op: 'consent', k: K });
+    startRecording();
+    $('app').innerHTML = '';
+    $('app').appendChild(el('<h2>Camera is on <span class="hi">/ कैमरा चालू है</span></h2><p class="sub">Check you can see your face in the corner. Press Start when ready - the timer begins. / कोने में अपना चेहरा देख लें। तैयार हों तो Start दबाएँ - समय शुरू होगा।</p><button onclick="startTest()">Start / शुरू करें</button>'));
+  }).catch(function (e) {
+    $('agree').disabled = false;
+    $('err').textContent = 'Camera or microphone not allowed. Allow both in the browser and try again. / कैमरा या माइक की अनुमति नहीं मिली। ब्राउज़र में दोनों की अनुमति दें और फिर कोशिश करें। (' + e.name + ')';
+  });
+}
+
+// test hook only: a drawn canvas stream so the pipeline can be checked without a camera; flagged server-side
+function fakeStream() {
+  var cv = document.createElement('canvas'); cv.width = 320; cv.height = 240; var ctx = cv.getContext('2d');
+  setInterval(function () { ctx.fillStyle = '#' + ((Date.now() / 100 | 0) % 999).toString().padStart(3, '0') + '888'; ctx.fillRect(0, 0, 320, 240); ctx.fillStyle = '#fff'; ctx.font = '30px sans-serif'; ctx.fillText('FAKE ' + new Date().toLocaleTimeString(), 10, 120); }, 200);
+  return cv.captureStream(10);
+}
+
+// ---- recording: 60-s webm chunks + a strip of thumbnails per chunk ----
+function startRecording() {
+  var mime = ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'].filter(function (m) { return window.MediaRecorder && MediaRecorder.isTypeSupported(m); })[0];
+  try {
+    recorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 350000, audioBitsPerSecond: 32000 } : undefined);
+  } catch (e) { $('err') && ($('err').textContent = 'Recording not supported on this phone browser. Use Chrome. / इस ब्राउज़र में रिकॉर्डिंग नहीं चलती, Chrome इस्तेमाल करें।'); return; }
+  recorder.ondataavailable = function (ev) {
+    if (!ev.data || !ev.data.size) return;
+    var mySeq = seq++;
+    var rd = new FileReader();
+    rd.onload = function () {
+      var b64 = String(rd.result).split(',')[1];
+      uploads.push(post({ op: 'chunk', k: K, seq: mySeq, mime: recorder.mimeType, data: b64 }).catch(function () { return null; }));
+    };
+    rd.readAsDataURL(ev.data);
+    flushStrip();
+  };
+  recorder.start(60000);
+  $('rec').style.display = 'block';
+  thumbTimer = setInterval(grabThumb, 10000);
+}
+function grabThumb() {
+  try {
+    var v = $('cam'); if (!v.videoWidth) return;
+    var c = document.createElement('canvas'); c.width = 160; c.height = 120;
+    c.getContext('2d').drawImage(v, 0, 0, 160, 120);
+    thumbs.push(c);
+  } catch (e) {}
+}
+function flushStrip() {
+  if (!thumbs.length) return;
+  var strip = document.createElement('canvas'); strip.width = 160 * thumbs.length; strip.height = 120;
+  var ctx = strip.getContext('2d');
+  thumbs.forEach(function (t, i) { ctx.drawImage(t, i * 160, 0); });
+  thumbs = [];
+  var b64 = strip.toDataURL('image/jpeg', 0.6).split(',')[1];
+  uploads.push(post({ op: 'strip', k: K, seq: stripSeq++, data: b64 }).catch(function () { return null; }));
+}
+function stopRecording() {
+  return new Promise(function (resolve) {
+    if (!recorder || recorder.state === 'inactive') return resolve();
+    recorder.onstop = function () { setTimeout(resolve, 300); };
+    recorder.stop();
+    clearInterval(thumbTimer);
+  });
+}
+
+// ---- Part A: trade questions, one at a time ----
+function startTest() {
+  T0 = Date.now(); deadline = T0 + P.minutes * 60000;
+  answers = P.questions.map(function () { return null; }); qTimes = P.questions.map(function () { return 0; });
+  cur = 0;
+  $('app').innerHTML = '<p class="sub">Part A / भाग A - ' + esc(P.title.en) + '</p><div id="qbox"></div><div class="err" id="err"></div><button id="go" onclick="nextQ()">Next / अगला</button>';
+  showQ();
+  $('timer').style.display = 'block';
+  tick = setInterval(function () {
+    var left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+    $('timer').textContent = Math.floor(left / 60) + ':' + ('0' + left % 60).slice(-2);
+    if (left <= 120) $('timer').classList.add('low');
+    if (left <= 0) { clearInterval(tick); recordQ(); startDisc(); }
+  }, 500);
+}
+function showQ() {
+  var q = P.questions[cur];
+  $('qbox').innerHTML = '<div class="q"><span class="en"><span class="no">Q' + (cur + 1) + ' / ' + P.questions.length + '.</span> ' + esc(q.en) + '</span><span class="hi">' + esc(q.hi) + '</span>' +
+    q.opts.map(function (o, i) { return '<label class="opt"><input type="radio" name="q" value="' + i + '"> ' + 'ABCD'.charAt(i) + ') ' + esc(o[0]) + ' <span class="hi">/ ' + esc(o[1]) + '</span></label>'; }).join('') + '</div>';
+  $('go').textContent = cur === P.questions.length - 1 ? 'Finish Part A / भाग A खत्म' : 'Next / अगला';
+  qStart = Date.now(); window.scrollTo(0, 0);
+}
+function recordQ() {
+  var r = document.querySelector('input[name=q]:checked');
+  answers[cur] = r ? Number(r.value) : null;
+  qTimes[cur] = Math.max(0.1, Math.round((Date.now() - qStart) / 100) / 10);
+}
+function nextQ() {
+  if (!document.querySelector('input[name=q]:checked') && !confirm('No answer chosen. Skip? You cannot come back. / कोई उत्तर नहीं चुना। छोड़ें? वापस नहीं आ सकते।')) return;
+  recordQ();
+  if (cur < P.questions.length - 1) { cur++; showQ(); } else { clearInterval(tick); startDisc(); }
+}
+
+// ---- Part B: 12-group DISC ----
+function startDisc() {
+  $('timer').style.display = 'none';
+  var order = ['D', 'I', 'S', 'C'];
+  var h = '<h2>Part B - Words about you <span class="hi">/ भाग B - आपके बारे में शब्द</span></h2><p class="sub">In each row pick the ONE word MOST like you and the ONE word LEAST like you. No time limit. / हर पंक्ति में सबसे ज़्यादा आपके जैसा एक शब्द और सबसे कम एक शब्द चुनें। समय सीमा नहीं।</p><div class="disc"><table><tr><th></th><th>MOST<br>सबसे ज़्यादा</th><th>LEAST<br>सबसे कम</th></tr>';
+  P.disc.forEach(function (g, i) {
+    var rot = order.slice(i % 4).concat(order.slice(0, i % 4));
+    h += '<tr><td colspan="3" style="background:#f3f6fa;font-weight:bold">' + (i + 1) + '</td></tr>';
+    rot.forEach(function (t) { h += '<tr><td>' + esc(g[t][0]) + ' <span class="hi">/ ' + esc(g[t][1]) + '</span></td><td style="text-align:center"><input type="radio" name="m' + i + '" value="' + t + '"></td><td style="text-align:center"><input type="radio" name="l' + i + '" value="' + t + '"></td></tr>'; });
+  });
+  h += '</table></div><div class="err" id="err"></div><button onclick="finishDisc()">Next / अगला</button>';
+  $('app').innerHTML = h; window.scrollTo(0, 0);
+}
+function finishDisc() {
+  disc = []; var missing = 0;
+  P.disc.forEach(function (g, i) {
+    var m = document.querySelector('input[name=m' + i + ']:checked'), l = document.querySelector('input[name=l' + i + ']:checked');
+    if (!m || !l) missing++;
+    disc.push({ most: m ? m.value : '', least: l ? l.value : '' });
+  });
+  if (missing && !confirm(missing + ' rows incomplete. Continue? / ' + missing + ' पंक्तियाँ अधूरी हैं। आगे बढ़ें?')) return;
+  startSpeak(0);
+}
+
+// ---- Part C: two spoken answers, 30 s each, into the same recording ----
+function startSpeak(i) {
+  var s = P.speak[i];
+  audioMarks.push(Math.round((Date.now() - T0) / 1000));
+  var left = 30;
+  $('app').innerHTML = '<h2>Part C - Speak <span class="hi">/ भाग C - बोलें</span> (' + (i + 1) + ' / 2)</h2><div class="q"><span class="en">' + esc(s.en) + '</span><span class="hi">' + esc(s.hi) + '</span></div><p class="sub">Speak now, clearly, looking at the camera. / अभी बोलें, साफ, कैमरे की ओर देखते हुए।</p><div class="speak" id="cnt">30</div>';
+  window.scrollTo(0, 0);
+  var t = setInterval(function () {
+    left--; $('cnt').textContent = left;
+    if (left <= 0) { clearInterval(t); if (i === 0) startSpeak(1); else finish(false, ''); }
+  }, 1000);
+}
+
+// ---- submit ----
+function finish(auto, why) {
+  if (submitted) return; submitted = true;
+  $('app').innerHTML = '<div class="done"><div class="big">Saving... / सेव हो रहा है...</div><p class="sub" id="prog">Please wait, do not close the page. / कृपया रुकें, पेज बंद न करें।</p></div>';
+  if (tick) clearInterval(tick);
+  if (hiddenSince) { hiddenS += Math.round((Date.now() - hiddenSince) / 1000); hiddenSince = 0; }
+  stopRecording().then(function () {
+    if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+    $('cam').style.display = 'none'; $('rec').style.display = 'none';
+    return Promise.all(uploads);
+  }).then(function () {
+    return post({ op: 'submit', k: K, answers: answers, q_times: qTimes, disc: disc, duration_s: Math.round((Date.now() - T0) / 1000),
+                  tab_switches: tabSwitches, hidden_s: hiddenS, consent_ts: consentTs, audio_marks: audioMarks, fake: FAKE, notes: auto ? 'auto: ' + why : '' });
+  }).then(function (r) {
+    if (!r.ok) throw new Error(r.error);
+    var m = Math.floor(r.duration_s / 60), s = r.duration_s % 60;
+    $('app').innerHTML = '<div class="done"><div class="big">Submitted &#10003;<br><span class="hi">जमा हो गया</span></div><p>Time / समय: <b>' + m + ' min ' + s + ' s</b></p><p>Our examiner will video-call you at the time given in your message. / हमारे examiner दिए गए समय पर आपको वीडियो कॉल करेंगे।</p></div>';
+  }).catch(function (e) {
+    submitted = false;
+    $('app').innerHTML += '<p class="err">Could not save: ' + esc(e.message) + '. Check internet and tap retry. / सेव नहीं हुआ, इंटरनेट देखें और retry दबाएँ।</p><button onclick="finish(false,\'\')">Retry / फिर कोशिश</button>';
+  });
+}
+</script>
+</body>
+</html>
