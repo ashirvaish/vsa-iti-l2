@@ -61,6 +61,12 @@ function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 function post(obj) {
   return fetch(API, { method: 'POST', body: JSON.stringify(obj), redirect: 'follow' }).then(function (r) { return r.json(); });
 }
+// uploads go one at a time: gentler on the backend and the first one creates the Drive folder
+var queue = Promise.resolve();
+function enqueue(obj) {
+  var p = queue.then(function () { return post(obj); }).catch(function () { return null; });
+  queue = p; uploads.push(p); return p;
+}
 
 // ---- visibility: leaving the page is recorded; too long ends the test ----
 document.addEventListener('visibilitychange', function () {
@@ -130,7 +136,7 @@ function startRecording() {
     var rd = new FileReader();
     rd.onload = function () {
       var b64 = String(rd.result).split(',')[1];
-      uploads.push(post({ op: 'chunk', k: K, seq: mySeq, mime: recorder.mimeType, data: b64 }).catch(function () { return null; }));
+      enqueue({ op: 'chunk', k: K, seq: mySeq, mime: recorder.mimeType, data: b64 });
     };
     rd.readAsDataURL(ev.data);
     flushStrip();
@@ -154,7 +160,7 @@ function flushStrip() {
   thumbs.forEach(function (t, i) { ctx.drawImage(t, i * 160, 0); });
   thumbs = [];
   var b64 = strip.toDataURL('image/jpeg', 0.6).split(',')[1];
-  uploads.push(post({ op: 'strip', k: K, seq: stripSeq++, data: b64 }).catch(function () { return null; }));
+  enqueue({ op: 'strip', k: K, seq: stripSeq++, data: b64 });
 }
 function stopRecording() {
   return new Promise(function (resolve) {
