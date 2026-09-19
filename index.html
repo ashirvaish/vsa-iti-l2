@@ -67,8 +67,24 @@ function post(obj) {
 }
 // uploads go one at a time: gentler on the backend and the first one creates the Drive folder
 var queue = Promise.resolve();
+var upFail = 0, upLastErr = '';
+// payload of a data: URL. NOT split(',')[1] - a recorder mime like "video/webm;codecs=vp8,opus"
+// has a comma of its own, which made every real-phone chunk upload the text "opus;base64" (18 Sep 26).
+function b64Of(dataUrl) { var s = String(dataUrl); return s.slice(s.lastIndexOf(',') + 1); }
+function postChecked(obj) {
+  return post(obj).then(function (r) { if (!r || !r.ok) throw new Error((r && r.error) || 'rejected'); return r; });
+}
+function sendWithRetry(obj, n) {
+  return postChecked(obj).catch(function (e) {
+    if (n <= 0 || /already submitted|invalid link/.test(String(e && e.message))) throw e;
+    return new Promise(function (res) { setTimeout(res, 2000); }).then(function () { return sendWithRetry(obj, n - 1); });
+  });
+}
+// a failed upload is retried twice, then COUNTED and reported at submit - never silently dropped
 function enqueue(obj) {
-  var p = queue.then(function () { return post(obj); }).catch(function () { return null; });
+  var p = queue.then(function () { return sendWithRetry(obj, 2); }).catch(function (e) {
+    upFail++; upLastErr = obj.op + ' ' + obj.seq + ': ' + String((e && e.message) || e).slice(0, 80); return null;
+  });
   queue = p; uploads.push(p); return p;
 }
 
@@ -125,7 +141,12 @@ function agree() {
 function fakeStream() {
   var cv = document.createElement('canvas'); cv.width = 320; cv.height = 240; var ctx = cv.getContext('2d');
   setInterval(function () { ctx.fillStyle = '#' + ((Date.now() / 100 | 0) % 999).toString().padStart(3, '0') + '888'; ctx.fillRect(0, 0, 320, 240); ctx.fillStyle = '#fff'; ctx.font = '30px sans-serif'; ctx.fillText('FAKE ' + new Date().toLocaleTimeString(), 10, 120); }, 200);
-  return cv.captureStream(10);
+  var s = cv.captureStream(10);
+  // give the fake stream an AUDIO track too, so the recorder mime is the real-phone one ("...vp8,opus").
+  // A video-only fake hid the comma bug above for a whole dry run.
+  try { var ac = new (window.AudioContext || window.webkitAudioContext)(), d = ac.createMediaStreamDestination(), o = ac.createOscillator(), g = ac.createGain();
+    g.gain.value = 0.01; o.connect(g); g.connect(d); o.start(); s.addTrack(d.stream.getAudioTracks()[0]); } catch (e) {}
+  return s;
 }
 
 // ---- recording: 60-s webm chunks + a strip of thumbnails per chunk ----
@@ -139,7 +160,7 @@ function startRecording() {
     var mySeq = seq++;
     var rd = new FileReader();
     rd.onload = function () {
-      var b64 = String(rd.result).split(',')[1];
+      var b64 = b64Of(rd.result);
       enqueue({ op: 'chunk', k: K, seq: mySeq, mime: recorder.mimeType, data: b64 });
     };
     rd.readAsDataURL(ev.data);
@@ -163,7 +184,7 @@ function flushStrip() {
   var ctx = strip.getContext('2d');
   thumbs.forEach(function (t, i) { ctx.drawImage(t, i * 160, 0); });
   thumbs = [];
-  var b64 = strip.toDataURL('image/jpeg', 0.6).split(',')[1];
+  var b64 = b64Of(strip.toDataURL('image/jpeg', 0.6));
   enqueue({ op: 'strip', k: K, seq: stripSeq++, data: b64 });
 }
 function stopRecording() {
@@ -258,7 +279,7 @@ function finish(auto, why) {
     return Promise.all(uploads);
   }).then(function () {
     return post({ op: 'submit', k: K, answers: answers, q_times: qTimes, disc: disc, duration_s: Math.round((Date.now() - T0) / 1000),
-                  tab_switches: tabSwitches, hidden_s: hiddenS, consent_ts: consentTs, audio_marks: audioMarks, fake: FAKE, notes: auto ? 'auto: ' + why : '' });
+                  tab_switches: tabSwitches, hidden_s: hiddenS, consent_ts: consentTs, audio_marks: audioMarks, fake: FAKE, upload_fail: upFail, upload_err: upLastErr, notes: auto ? 'auto: ' + why : '' });
   }).then(function (r) {
     if (!r.ok) throw new Error(r.error);
     var m = Math.floor(r.duration_s / 60), s = r.duration_s % 60;
