@@ -30,8 +30,12 @@
     .err { color: #c00; font-weight: bold; margin: 8px 0; }
     .done { text-align: center; padding: 30px 10px; }
     .done .big { font-size: 26px; color: #363464; font-weight: bold; }
-    #cam { position: fixed; right: 8px; bottom: 8px; width: 96px; height: 128px; object-fit: cover; border: 3px solid #33B1B6; border-radius: 10px; background: #000; z-index: 6; display: none; }
-    #rec { position: fixed; right: 12px; bottom: 140px; background: #EE3B3B; color: #fff; font-size: 12px; padding: 2px 8px; border-radius: 10px; z-index: 6; display: none; }
+    /* preview is shown ONLY on the pre-start framing check (.check); during the test it is .hid -
+       kept alive at 2px / near-zero opacity (never display:none) so grabThumb() keeps getting decoded frames */
+    #cam { position: fixed; object-fit: cover; background: #000; z-index: 6; display: none; }
+    #cam.check { left: 50%; transform: translateX(-50%); bottom: 24px; width: 150px; height: 200px; border: 3px solid #33B1B6; border-radius: 10px; }
+    #cam.hid { right: 0; bottom: 0; width: 2px; height: 2px; opacity: 0.01; border: 0; pointer-events: none; }
+    #rec { position: fixed; right: 12px; bottom: 12px; background: #EE3B3B; color: #fff; font-size: 12px; padding: 2px 8px; border-radius: 10px; z-index: 6; display: none; }
     .disc table { width: 100%; border-collapse: collapse; }
     .disc td { padding: 6px 4px; border-bottom: 1px solid #eee; vertical-align: top; }
     .disc th { font-size: 13px; color: #666; font-weight: normal; }
@@ -105,12 +109,12 @@ function agree() {
   $('agree').disabled = true; $('err').textContent = '';
   var p = FAKE ? Promise.resolve(fakeStream()) : navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: true });
   p.then(function (s) {
-    stream = s; $('cam').srcObject = s; $('cam').style.display = 'block';
+    stream = s; $('cam').srcObject = s; $('cam').className = 'check'; $('cam').style.display = 'block';
     consentTs = new Date().toISOString();
     post({ op: 'consent', k: K });
     startRecording();
     $('app').innerHTML = '';
-    $('app').appendChild(el('<h2>Camera is on <span class="hi">/ कैमरा चालू है</span></h2><p class="sub">Check you can see your face in the corner. Press Start when ready - the timer begins. / कोने में अपना चेहरा देख लें। तैयार हों तो Start दबाएँ - समय शुरू होगा।</p><button onclick="startTest()">Start / शुरू करें</button>'));
+    $('app').appendChild(el('<h2>Camera is on <span class="hi">/ कैमरा चालू है</span></h2><p class="sub">Check you can see your face below. It hides when the test starts - recording continues until Submit. Press Start when ready - the timer begins. / नीचे अपना चेहरा देख लें। टेस्ट शुरू होते ही यह छिप जाएगा - रिकॉर्डिंग Submit तक चलती रहेगी। तैयार हों तो Start दबाएँ - समय शुरू होगा।</p><button onclick="startTest()">Start / शुरू करें</button>'));
   }).catch(function (e) {
     $('agree').disabled = false;
     $('err').textContent = 'Camera or microphone not allowed. Allow both in the browser and try again. / कैमरा या माइक की अनुमति नहीं मिली। ब्राउज़र में दोनों की अनुमति दें और फिर कोशिश करें। (' + e.name + ')';
@@ -173,6 +177,7 @@ function stopRecording() {
 
 // ---- Part A: trade questions, one at a time ----
 function startTest() {
+  $('cam').className = 'hid';   // no self-view during the test; element stays live for thumbnails
   T0 = Date.now(); deadline = T0 + P.minutes * 60000;
   answers = P.questions.map(function () { return null; }); qTimes = P.questions.map(function () { return 0; });
   cur = 0;
