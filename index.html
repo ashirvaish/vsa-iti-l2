@@ -250,7 +250,9 @@ function finishDisc() {
     if (!m || !l) missing++;
     disc.push({ most: m ? m.value : '', least: l ? l.value : '' });
   });
-  if (missing && !confirm(missing + ' rows incomplete. Continue? / ' + missing + ' पंक्तियाँ अधूरी हैं। आगे बढ़ें?')) return;
+  // mandatory: 3 of the first 8 candidates skipped all 12 rows through the old confirm() and the
+  // DISC-consistency check could not run on them
+  if (missing) { $('err').textContent = missing + ' rows incomplete - pick MOST and LEAST in every row. / ' + missing + ' पंक्तियाँ अधूरी हैं - हर पंक्ति में सबसे ज़्यादा और सबसे कम चुनें।'; $('err').scrollIntoView(); return; }
   startSpeak(0);
 }
 
